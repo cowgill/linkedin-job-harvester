@@ -3,6 +3,17 @@ import { JSDOM } from 'jsdom'
 import fastCsv from 'fast-csv'
 import fs from 'fs'
 
+// Helper function to read job IDs from a file into a set
+function readJobIds(filePath) {
+  return new Set(fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8').split('\n') : []);
+}
+
+// Helper function to write job IDs from a set to a file
+function writeJobIds(filePath, jobIds) {
+  fs.writeFileSync(filePath, Array.from(jobIds).join('\n'));
+}
+
+
 class Query {
   constructor(queryObj) {
     Object.assign(this, {
@@ -98,43 +109,52 @@ class Query {
   }
 
   // Fetch job listings from LinkedIn and parse the HTML into job objects
-  async getJobs() { 
+  async getJobs() {
     try {
       let start = 0;
       const allJobs = [];
-      const fileExists = fs.existsSync('jobs.csv');  // Check if the file exists
-      const writableStream = fs.createWriteStream('jobs.csv', { flags: 'a' });  // Set the flag to 'a' to append data
-      const csvStream = fastCsv.format({ headers: !fileExists });  // Only include headers if the file doesn't exist
-  
-      csvStream.pipe(writableStream);  // Pipe the CSV stream to the writable stream
-  
-      let hasMoreJobs = true;  // Control variable for the loop
+      const fileExists = fs.existsSync('jobs.csv');
+      const writableStream = fs.createWriteStream('jobs.csv', { flags: 'a' });
+      const csvStream = fastCsv.format({ headers: !fileExists });
+
+      // Read existing job IDs from a file into a set
+      const existingJobIds = readJobIds('existing-job-ids.txt');
+
+      csvStream.pipe(writableStream);
+
+      let hasMoreJobs = true;
       do {
-        // Break the loop if the limit is reached
         if (this.limit > 0 && allJobs.length >= this.limit) break;
-        
+
         const { data } = await axios.get(this.url(start));
         const parsedJobs = parseJobList(data);
-  
-        if (parsedJobs.length === 0) {
-          hasMoreJobs = false;  // Set hasMoreJobs to false if no jobs are returned
-        } else {
-          // If there's a limit, only push and write jobs up to that limit
-          if (this.limit > 0 && allJobs.length + parsedJobs.length > this.limit) {
-            const jobsToPush = parsedJobs.slice(0, this.limit - allJobs.length);
-            allJobs.push(...jobsToPush);
-            jobsToPush.forEach(job => csvStream.write(job));  // Write to CSV
-          } else {
-            allJobs.push(...parsedJobs);
-            parsedJobs.forEach(job => csvStream.write(job));  // Write to CSV
-          }
-          
+
+        // Filter out any jobs whose jobId is already in the set
+        const newJobs = parsedJobs.filter(job => !existingJobIds.has(job.jobId));
+
+        // Add the jobId of any new jobs to the set
+        newJobs.forEach(job => existingJobIds.add(job.jobId));
+
+        if (newJobs.length === 0 && parsedJobs.length !== 0) {
+          // If there are no new jobs but there are parsed jobs, increment start to check the next batch of jobs
           start += 25;
-          await new Promise(resolve => setTimeout(resolve, 1000));  // Delay next request by 1 second
+        } else if (newJobs.length > 0) {
+          // If there are new jobs, add them to allJobs and write them to the CSV file
+          allJobs.push(...newJobs);
+          newJobs.forEach(job => csvStream.write(job));
+          start += 25;
+        } else {
+          // If there are no parsed jobs, set hasMoreJobs to false to end the loop
+          hasMoreJobs = false;
         }
-      } while (hasMoreJobs);  // Continue the loop as long as there are more jobs to fetch
-  
-      csvStream.end();  // End the CSV stream
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } while (hasMoreJobs);
+
+      // Write the updated set of job IDs back to the file
+      writeJobIds('existing-job-ids.txt', existingJobIds);
+
+      csvStream.end();
       return allJobs;
     } catch (error) {
       console.error(error);
@@ -149,18 +169,23 @@ class Query {
  * @returns {Array} An array of job objects.
  */
 function parseJobList(jobData) {
-  const { document } = new JSDOM(jobData).window
-  const jobs = Array.from(document.querySelectorAll('li'))
+  const { document } = new JSDOM(jobData).window;
+  const jobs = Array.from(document.querySelectorAll('li'));
   return jobs.map(job => {
-    const position = job.querySelector('.base-search-card__title')?.textContent.trim() || ''
-    const company = job.querySelector('.base-search-card__subtitle')?.textContent.trim() || ''
-    const location = job.querySelector('.job-search-card__location')?.textContent.trim() || ''
-    const date = job.querySelector('time')?.getAttribute('datetime') || ''
-    const salary = (job.querySelector('.job-search-card__salary-info')?.textContent.trim().replace(/\n/g, '').replaceAll(' ', '')) || ''
-    const jobUrl = job.querySelector('.base-card__full-link')?.getAttribute('href') || ''
-    return { position, company, location, date, salary, jobUrl }
-  })
+    const divElement = job.querySelector('div.base-card');
+    const entityUrn = divElement ? divElement.getAttribute('data-entity-urn') : '';
+    const jobId = entityUrn.split(':').pop();
+    const position = job.querySelector('.base-search-card__title')?.textContent.trim() || '';
+    const company = job.querySelector('.base-search-card__subtitle')?.textContent.trim() || '';
+    const location = job.querySelector('.job-search-card__location')?.textContent.trim() || '';
+    const date = job.querySelector('time')?.getAttribute('datetime') || '';
+    const salary = (job.querySelector('.job-search-card__salary-info')?.textContent.trim().replace(/\n/g, '').replaceAll(' ', '')) || '';
+    const jobUrl = job.querySelector('.base-card__full-link')?.getAttribute('href') || '';
+    return { jobId, position, company, location, date, salary, jobUrl };
+  });
 }
+
+
 
 /**
  * Initiate a job query based on the provided query object.
