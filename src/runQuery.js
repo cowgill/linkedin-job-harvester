@@ -7,7 +7,7 @@ const jobQuery = {
   remoteFilter: "remote",
   experienceLevel: "director",
   jobType: "full time",
-  limit: 25,
+  limit: 20,
 };
 
 query(jobQuery);

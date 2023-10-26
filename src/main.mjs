@@ -109,58 +109,68 @@ class Query {
   }
 
   // Fetch job listings from LinkedIn and parse the HTML into job objects
-  async getJobs() {
-    try {
-      let start = 0;
-      const allJobs = [];
-      const fileExists = fs.existsSync('jobs.csv');
-      const writableStream = fs.createWriteStream('jobs.csv', { flags: 'a' });
-      const csvStream = fastCsv.format({ headers: !fileExists });
-
-      // Read existing job IDs from a file into a set
-      const existingJobIds = readJobIds('existing-job-ids.txt');
-
-      csvStream.pipe(writableStream);
-
-      let hasMoreJobs = true;
-      do {
-        if (this.limit > 0 && allJobs.length >= this.limit) break;
-
-        const { data } = await axios.get(this.url(start));
-        const parsedJobs = parseJobList(data);
-
-        // Filter out any jobs whose jobId is already in the set
-        const newJobs = parsedJobs.filter(job => !existingJobIds.has(job.jobId));
-
-        // Add the jobId of any new jobs to the set
-        newJobs.forEach(job => existingJobIds.add(job.jobId));
-
-        if (newJobs.length === 0 && parsedJobs.length !== 0) {
-          // If there are no new jobs but there are parsed jobs, increment start to check the next batch of jobs
-          start += 25;
-        } else if (newJobs.length > 0) {
-          // If there are new jobs, add them to allJobs and write them to the CSV file
-          allJobs.push(...newJobs);
-          newJobs.forEach(job => csvStream.write(job));
-          start += 25;
-        } else {
-          // If there are no parsed jobs, set hasMoreJobs to false to end the loop
-          hasMoreJobs = false;
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      } while (hasMoreJobs);
-
-      // Write the updated set of job IDs back to the file
-      writeJobIds('existing-job-ids.txt', existingJobIds);
-
-      csvStream.end();
-      return allJobs;
-    } catch (error) {
-      console.error(error);
-    }
-  }
-  
+    // Fetch job listings from LinkedIn and parse the HTML into job objects
+    async getJobs() {
+      try {
+        let start = 0;
+        const allJobs = [];
+        const fileExists = fs.existsSync('jobs.csv');
+        const writableStream = fs.createWriteStream('jobs.csv', { flags: 'a' });
+        const csvStream = fastCsv.format({ headers: !fileExists });
+    
+        // Read existing job IDs from a file into a set
+        const existingJobIds = readJobIds('existing-job-ids.txt');
+    
+        csvStream.pipe(writableStream);
+    
+        let hasMoreJobs = true;
+        let newJobsAdded = 0;  // Variable to keep track of the number of new jobs added
+        do {
+          if (this.limit > 0 && allJobs.length >= this.limit) {
+            // If limit is reached or exceeded, break out of the loop
+            break;
+          }
+    
+          const { data } = await axios.get(this.url(start));
+          const parsedJobs = parseJobList(data);
+    
+          // Filter out any jobs whose jobId is already in the set
+          const newJobs = parsedJobs.filter(job => !existingJobIds.has(job.jobId));
+    
+          // Add the jobId of any new jobs to the set
+          newJobs.forEach(job => existingJobIds.add(job.jobId));
+    
+          if (newJobs.length === 0 && parsedJobs.length !== 0) {
+            console.log("Skipping duplicate jobs...");
+            start += 25;
+          } else if (newJobs.length > 0) {
+            // Check if adding all new jobs would exceed the limit
+            const excess = (allJobs.length + newJobs.length) - this.limit;
+            const jobsToAdd = excess > 0 ? newJobs.slice(0, -excess) : newJobs;
+            
+            allJobs.push(...jobsToAdd);
+            jobsToAdd.forEach(job => csvStream.write(job));
+            newJobsAdded += jobsToAdd.length;  // Increment the newJobsAdded variable
+            
+            console.log(`Adding ${jobsToAdd.length} new jobs...`);
+            start += 25;
+          } else {
+            hasMoreJobs = false;
+          }
+    
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        } while (hasMoreJobs);
+    
+        // Write the updated set of job IDs back to the file
+        writeJobIds('existing-job-ids.txt', existingJobIds);
+    
+        csvStream.end();
+        console.log(`Total new jobs added: ${newJobsAdded}`);
+        return allJobs;
+      } catch (error) {
+        console.error(error);
+      }
+    }     
 }
 
 /**
