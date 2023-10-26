@@ -1,13 +1,13 @@
 import { query } from "./main.mjs";
 
 const jobQuery = {
-  keyword: "Marketing Operations",
+  keyword: "Director of Marketing Operations",
   location: "United States",
-  dateSincePosted: "past week",
+  dateSincePosted: "past month",
   remoteFilter: "remote",
   experienceLevel: "director",
   jobType: "full time",
-  limit: 20,
+  limit: 100,
 };
 
 query(jobQuery);
@@ -27,3 +27,6 @@ query(jobQuery);
 // linkedIn.query(queryOptions).then((response) => {
 //   console.log(response); // An array of Job objects
 // });
+
+
+// Director Of Marketing Operations
