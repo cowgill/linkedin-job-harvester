@@ -148,7 +148,7 @@ class Query {
           hasMoreJobs = false;
         }
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
       } while (hasMoreJobs);
 
       // Write the updated set of job IDs back to the file
@@ -180,10 +180,12 @@ function parseJobList(jobData) {
     const location = job.querySelector('.job-search-card__location')?.textContent.trim() || '';
     const date = job.querySelector('time')?.getAttribute('datetime') || '';
     const salary = (job.querySelector('.job-search-card__salary-info')?.textContent.trim().replace(/\n/g, '').replaceAll(' ', '')) || '';
-    const jobUrl = job.querySelector('.base-card__full-link')?.getAttribute('href') || '';
+    let jobUrl = job.querySelector('.base-card__full-link')?.getAttribute('href') || '';
+    jobUrl = jobUrl.split('?refId')[0];  // Truncate the URL at ?refId
     return { jobId, position, company, location, date, salary, jobUrl };
   });
 }
+
 
 
 
@@ -194,6 +196,7 @@ function parseJobList(jobData) {
  */
 export async function query(queryObject) {
   const queryInstance = new Query(queryObject)
-  console.log(queryInstance.url(0))
+  //console.log(queryInstance.url(0))
+  console.log('Fetching jobs...')
   return queryInstance.getJobs()
 }
